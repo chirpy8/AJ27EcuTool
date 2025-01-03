@@ -3311,7 +3311,7 @@ public class AJ27EcuTool {
 					// expect response ack 06 7f 31 04 00 00 00
 					printRequestResult(reply);
 					
-					//validate erase success, step 1
+					//validate erase success
 					
 					String erase_persistent_result_msg = "Confirm erased all persistent eprom data step 1";
 					byte[] erase_persistent_result_data = new byte[]{(byte)0x32,(byte)0x04,(byte)0x00};
@@ -3322,19 +3322,6 @@ public class AJ27EcuTool {
 							new byte[] {(byte) 0x06, (byte) 0x7f, (byte) 0x32, (byte) 0x04,
 									(byte) 0x00, (byte) 0x00, (byte) 0x62}, 0x7ec, null, 500L);
 					// expect response ack 06 7f 32 04 00 00 62
-					printRequestResult(reply);
-					
-					//validate erase success, step 2
-					
-					String erase_persistent_result2_msg = "Confirm erased all persistent eprom data step 2";
-					byte[] erase_persistent_result2_data = new byte[]{(byte)0x32,(byte)0x04,(byte)0x01};
-					CanbusMessage erase_persistent_result2 = new CanbusMessage(0x7e8, erase_persistent_result2_data, erase_persistent_result2_msg);	
-					
-					publish("Sending "+erase_persistent_result2.toDetailsString());
-					reply = canbusRequestAndResponses(10, erase_persistent_result2,
-							new byte[] {(byte) 0x06, (byte) 0x7f, (byte) 0x32, (byte) 0x04,
-									(byte) 0x00, (byte) 0x00, (byte) 0x64}, 0x7ec, null, 500L);
-					// expect response ack 06 7f 32 04 00 00 64
 					printRequestResult(reply);
 					
 					
