@@ -3294,7 +3294,49 @@ public class AJ27EcuTool {
 					CanbusResponses reply = canbusRequestAndResponses(1, can27_01,
 							new byte[] {(byte) 0x03, (byte) 0x67, (byte) 0x02}, 0x7ec, null, 200L);
 					//printRequestResult(reply);
+					
+					
+					//erase eprom
+					//02 31 04 > 06 7f 31 04 00 00 00
+					//03 32 04 00 > 06 7f 32 04 00 00 62
+					//03 32 04 01 > 06 7f 32 04 01 00 64
+					
+					String erase_persistent_data_msg = "Erase all persistent eprom data";
+					byte[] erase_persistent_data = new byte[]{(byte)0x31,(byte)0x04};
+					CanbusMessage erase_persistent = new CanbusMessage(0x7e8, erase_persistent_data, erase_persistent_data_msg);
 
+					publish("Sending "+erase_persistent.toDetailsString());
+					reply = canbusRequestAndResponses(3, erase_persistent, new byte[] {(byte) 0x06, (byte) 0x7f,
+							(byte) 0x31, (byte) 0x04, (byte) 0x00, (byte) 0x00, (byte) 0x00}, 0x7ec, null, 5000L);
+					// expect response ack 06 7f 31 04 00 00 00
+					printRequestResult(reply);
+					
+					//validate erase success, step 1
+					
+					String erase_persistent_result_msg = "Confirm erased all persistent eprom data step 1";
+					byte[] erase_persistent_result_data = new byte[]{(byte)0x32,(byte)0x04,(byte)0x00};
+					CanbusMessage erase_persistent_result = new CanbusMessage(0x7e8, erase_persistent_result_data, erase_persistent_result_msg);	
+					
+					publish("Sending "+erase_persistent_result.toDetailsString());
+					reply = canbusRequestAndResponses(10, erase_persistent_result,
+							new byte[] {(byte) 0x06, (byte) 0x7f, (byte) 0x32, (byte) 0x04,
+									(byte) 0x00, (byte) 0x00, (byte) 0x62}, 0x7ec, null, 500L);
+					// expect response ack 06 7f 32 04 00 00 62
+					printRequestResult(reply);
+					
+					//validate erase success, step 2
+					
+					String erase_persistent_result2_msg = "Confirm erased all persistent eprom data step 2";
+					byte[] erase_persistent_result2_data = new byte[]{(byte)0x32,(byte)0x04,(byte)0x01};
+					CanbusMessage erase_persistent_result2 = new CanbusMessage(0x7e8, erase_persistent_result2_data, erase_persistent_result2_msg);	
+					
+					publish("Sending "+erase_persistent_result2.toDetailsString());
+					reply = canbusRequestAndResponses(10, erase_persistent_result2,
+							new byte[] {(byte) 0x06, (byte) 0x7f, (byte) 0x32, (byte) 0x04,
+									(byte) 0x00, (byte) 0x00, (byte) 0x64}, 0x7ec, null, 500L);
+					// expect response ack 06 7f 32 04 00 00 64
+					printRequestResult(reply);
+					
 					
 					String msg_e7_23 = "Program eeprom3 00-05, 3 bytes";
 					byte[] data_e7_23 = new byte[]{(byte)0x2f,(byte)0xe7,(byte)0x23,
