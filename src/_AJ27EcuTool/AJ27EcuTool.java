@@ -195,6 +195,8 @@ public class AJ27EcuTool {
 	private JButton persistentDataButton;
 	JLabel persistentDataLabel;
 	JProgressBar persistentProgressBar;
+	private JButton saveRAMButton;
+	private JProgressBar ramDownloadProgressBar;
 	
 
 	
@@ -548,7 +550,7 @@ public class AJ27EcuTool {
 		commandsPanel.add(singleCommandsPanel);
 		singleCommandsPanel.setLayout(new BoxLayout(singleCommandsPanel, BoxLayout.Y_AXIS));
 		
-		Component rigidArea_1 = Box.createRigidArea(new Dimension(20, 20));
+		Component rigidArea_1 = Box.createRigidArea(new Dimension(70, 70));
 		singleCommandsPanel.add(rigidArea_1);
 		
 		JLabel commandLabel = new JLabel("Send Command");
@@ -589,6 +591,10 @@ public class AJ27EcuTool {
 		commandButton.setEnabled(false);
 		commandButton.setAlignmentX(Component.CENTER_ALIGNMENT);
 		singleCommandsPanel.add(commandButton);
+		
+		Component rigidArea_2 = Box.createRigidArea(new Dimension(20, 20));
+		singleCommandsPanel.add(rigidArea_2);
+
 		
 		JPanel statusPanel = new JPanel();
 		commandsPanel.add(statusPanel);
@@ -733,6 +739,19 @@ public class AJ27EcuTool {
 				monitorTextArea.setText("");
 			}
 		});
+		
+		saveRAMButton = new JButton("Save RAM");
+		saveRAMButton.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				retrieveRamData();
+			}
+		});
+		saveRAMButton.setEnabled(false);
+		programPanel.add(saveRAMButton);
+		
+		ramDownloadProgressBar = new JProgressBar();
+		ramDownloadProgressBar.setStringPainted(true);
+		programPanel.add(ramDownloadProgressBar);
 		programPanel.add(serialSelectButton);
 		
 		serialPortLabel = new JLabel("<Unknown>");
@@ -1085,6 +1104,7 @@ public class AJ27EcuTool {
 		if (arduinoDetected && (ecuNormalMode == true))
 		{
 			savePersistentButton.setEnabled(true);
+			saveRAMButton.setEnabled(true);
 		}
 		
 		//if not in normal mode, see if ecu is in boot mode
@@ -3524,6 +3544,185 @@ public class AJ27EcuTool {
 	    });
 
 		writePData.execute();
+	}
+	
+	
+	// retrieve all RAM data
+	//from address 0x0b0000-b1bff, which is 7168 bytes
+	private void retrieveRamData()
+	{
+		
+		SwingWorker<ArrayList<Byte>, String> getRamData = new SwingWorker<ArrayList<Byte>, String>()
+		{
+			@Override
+			protected ArrayList<Byte> doInBackground()
+			{
+				ArrayList<Byte> ramData = new ArrayList<Byte>();
+				byte last_mid = 0;
+				int progressCount = 0;
+				
+				try
+				{
+					for (int x=0;x<1792;x++)
+					{
+						byte addr_low = (byte)((x << 2) & 0xff);
+						byte addr_mid = (byte) (x >> 6);
+						CanbusMessage ramReq = new CanbusMessage(0x7e8, new byte[] {(byte) 0x23, (byte) 0x0b, addr_mid, addr_low}, "Get memory bytes");
+						
+						CanbusResponses cr = canbusRequestAndResponses(3, ramReq,
+								new byte[] {(byte) 0x07, (byte) 0x63, addr_mid, addr_low}, 0x7ec, null, 100L);
+						String s = String.format("%02x %02x", addr_mid, addr_low);
+						//publish("Requesting address 0x0b "+s);
+						if (cr.getResult())
+						{
+							byte[] response = cr.getTargetResponse().getData();
+							for (int y=0;y<3;y++)
+							{
+								ramData.add(Byte.valueOf(response[y+4]));
+							}
+						}
+						else
+						{
+							throw new Exception("incorrect response to canbus request 0x23");
+						}
+						
+						if (addr_mid != last_mid)
+						{
+							s = String.format("%02x", last_mid);
+							publish("Downloaded 256 ram bytes at 0x0b" + s + "00");
+							progressCount += 3;
+							setProgress(progressCount);
+						}
+						
+						last_mid = addr_mid;
+					}
+			
+					String s = String.format("%2x", last_mid);
+					publish("Downloaded 256 ram bytes at 0x0b" + s + "00\n");				
+			
+				}
+				catch (Exception e)
+				{
+					e.printStackTrace();
+				};
+				
+				setProgress(100);
+				return ramData;
+			}
+		
+			@Override
+			protected void process(List<String> progressMessages)
+			{
+				Iterator<String> it = progressMessages.iterator();
+				while (it.hasNext())
+				{
+					monitorTextArea.append(it.next()+"\n");		
+				}
+			}
+			
+			@Override
+			protected void done()
+			{
+				monitorTextArea.append("Finished downloading\n");
+				try {
+					ArrayList<Byte> retrievedRamData = get();
+					monitorTextArea.append("calling saveRamData\n");
+					saveRamData(retrievedRamData);
+				}
+				catch (Exception e) { 
+                    e.printStackTrace(); 
+                } 
+			}
+		};
+	
+		// add listener to update progress bar
+		getRamData.addPropertyChangeListener(new PropertyChangeListener() {
+	        @Override
+	        public void propertyChange(PropertyChangeEvent e) {
+	            if ("progress".equals(e.getPropertyName())) {
+	                ramDownloadProgressBar.setValue((Integer) e.getNewValue());
+	            }
+	        }
+
+	    });
+
+		getRamData.execute();
+
+	}
+	
+	
+	// save ram data using b68 format
+	//number of bytes is 6 + 1029*7 = 7209
+	//prompt for filename to use for data, automatically add .b68 extension
+	private void saveRamData(ArrayList<Byte> data)
+	{	
+		monitorTextArea.append("entering saveRamData\n");
+
+		byte[] saveData = new byte[7029];
+		
+		//write CPU signature
+		saveData[0] = 04;
+		saveData[1] = 00;
+		saveData[2] = 00;
+		saveData[3] = 7;		
+		saveData[4] = (byte) 0x54;
+		saveData[5] = (byte) 0xaa;
+		saveData[6] = (byte) 0x0b;
+		saveData[7] = (byte) 0;
+		saveData[8] = (byte) 0;
+		
+		
+		for (int x=0;x<7;x++)
+		{			
+			//write header for block, unless first block which is skipped
+			if (x != 0)
+			{
+				saveData[9+(x*1029)-5] = 0x00;
+				saveData[9+(x*1029)-4] = 0x00;
+				saveData[9+(x*1029)-3] = (byte) 0x0b;
+				saveData[9+(x*1029)-2] = (byte) (x*4);
+				saveData[9+(x*1029)-1] = 0x00;
+			}
+
+			for (int y=0;y<1024;y++)
+			{
+				//saveData[9+(x*1029)+y] = data[(x*1024)+y];
+				saveData[9+(x*1029)+y] = data.get((x*1024)+y).byteValue();
+			}
+		}
+				
+		monitorTextArea.append("Preparing to save ram data\n");
+		
+		//file is an existing file chooser
+		//save the file
+		fc.setDialogTitle("Name for the ram data file (no extension) ?");
+		
+		int userSelection = fc.showSaveDialog(saveRAMButton);
+		
+		if (userSelection == JFileChooser.APPROVE_OPTION)
+		{
+			File saveFile = fc.getSelectedFile();
+			String filePath = saveFile.getPath();				
+						
+			saveFile = new File(filePath + ".b68");
+				
+			try (FileOutputStream out = new FileOutputStream(saveFile))
+			{
+				out.write(saveData);
+			}
+			catch (FileNotFoundException e)
+			{
+				e.printStackTrace();
+			}
+			catch (IOException e)
+			{
+				e.printStackTrace();
+			}
+
+		}
+		
+		monitorTextArea.append("Ram data saved\n");
+		
 	}
 	
 }
