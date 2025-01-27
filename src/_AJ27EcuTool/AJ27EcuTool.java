@@ -142,6 +142,7 @@ public class AJ27EcuTool {
 	
 	Vector<CanbusMessage> tpuPhaseMessages = new Vector<CanbusMessage>();
 	Vector<CanbusMessage> programmerPhaseMessages = new Vector<CanbusMessage>();
+	Vector<CanbusMessage> normalPhaseMessages = new Vector<CanbusMessage>();
 	
 	String msg31_a2 = "Validate 1k block sent to CPU1";
 	byte[] data31_a2 = new byte[]{(byte)0x31,(byte)0xa2};
@@ -268,6 +269,22 @@ public class AJ27EcuTool {
 			byte[] value = new byte[8];
 			System.arraycopy(data, 0, value, 0, 8);
 			return value;
+		}
+		
+		void updateData(byte[] newData)
+		{
+			//updates the data bytes, not the ID. Length is computed
+			int length = newData.length;
+			if (length > 7)
+				length = 7;
+			if (length < 1)
+				return;
+			
+			data[0] = (byte) length;
+			for (int x=1;x<length;x++)
+			{
+				data[x] = newData[x-1];
+			}
 		}
 		
 		public String toDetailsString()
@@ -572,10 +589,22 @@ public class AJ27EcuTool {
 				//send canbus command to Arduino
 				if (selectedMessage != null)
 				{
+					//
+					//special treatment for message 23 - read memory address
+					if (selectedMessage.getData()[1] == 0x23)
+					{
+						//prompt for target address
+						byte[] targetAddress = getAddressInput();
+						//update message
+						selectedMessage.updateData(targetAddress);
+					}
+					
 					// send message, don't try to read response, just use to show in text monitor
-					byte[] vector = {0x01};
+					byte[] vector = {0x0};
+					//since mechanism used both in ecuNormalMode and ecuBootMode, need to determine which canbus response id to listen for
+					int responseID = (ecuNormalMode) ? 0x7ec : 0x30;
 					monitorTextArea.append("Sending "+selectedMessage.toDetailsString()+"\n");
-					CanbusResponses reply = canbusRequestAndResponses(1, selectedMessage, vector, 0x30, null, 100L);
+					CanbusResponses reply = canbusRequestAndResponses(1, selectedMessage, vector, responseID, null, 100L);
 					printRequestResult(reply);
 				}
 				else
@@ -925,6 +954,13 @@ public class AJ27EcuTool {
 		
 		programmerPhaseMessages.add(can3f);
 		
+		//commands for ecu in normal mode
+		
+		String msg23 = "Request ram memory read";
+		byte[] data23 = new byte[]{(byte)0x23, (byte) 0x0b, (byte) 0, (byte) 0};
+		CanbusMessage can23 = new CanbusMessage(0x7e8, data23, msg23);
+		normalPhaseMessages.add(can23);
+		
 	}
 	
 	private void selectSerialPort()
@@ -1004,6 +1040,7 @@ public class AJ27EcuTool {
 					ecuBootMode = false;
 					ecuNormalMode = true;
 					ecuStatusLabel.setText("Inactive - Normal");
+					updateNormalCommandsSelection();
 				}
 				
 				//process messages from ecu boot mode
@@ -1105,6 +1142,7 @@ public class AJ27EcuTool {
 		{
 			savePersistentButton.setEnabled(true);
 			saveRAMButton.setEnabled(true);
+			commandButton.setEnabled(true);
 		}
 		
 		//if not in normal mode, see if ecu is in boot mode
@@ -1164,12 +1202,20 @@ public class AJ27EcuTool {
 	}
 	
 	
-	private void updateCommandsSelection()
+	private void updateProgrammerCommandsSelection()
 	{
 		DefaultComboBoxModel<CanbusMessage> programmerPhaseMessageCommands = new DefaultComboBoxModel<CanbusMessage>(programmerPhaseMessages);
 		
 		//use this model to initialize the commandComboBox
 		commandComboBox.setModel(programmerPhaseMessageCommands);
+	}
+	
+	private void updateNormalCommandsSelection()
+	{
+		DefaultComboBoxModel<CanbusMessage> normalPhaseMessageCommands = new DefaultComboBoxModel<CanbusMessage>(normalPhaseMessages);
+		
+		//use this model to initialize the commandComboBox
+		commandComboBox.setModel(normalPhaseMessageCommands);
 	}
 	
 	private CanbusResponses canbusRequestAndResponses(int attempts, CanbusMessage requestMessage, byte[] responseVector, int responseID,
@@ -1913,6 +1959,8 @@ public class AJ27EcuTool {
 					//disable select programmers file buttons since now loaded
 					CPU1LoaderButton.setEnabled(false);
 					CPU2LoaderButton.setEnabled(false);
+					//update drop down box command choices
+					updateProgrammerCommandsSelection();
 					break;
 				}
 				
@@ -3576,7 +3624,7 @@ public class AJ27EcuTool {
 						if (cr.getResult())
 						{
 							byte[] response = cr.getTargetResponse().getData();
-							for (int y=0;y<3;y++)
+							for (int y=0;y<4;y++)
 							{
 								ramData.add(Byte.valueOf(response[y+4]));
 							}
@@ -3658,7 +3706,7 @@ public class AJ27EcuTool {
 	{	
 		monitorTextArea.append("entering saveRamData\n");
 
-		byte[] saveData = new byte[7029];
+		byte[] saveData = new byte[7209];
 		
 		//write CPU signature
 		saveData[0] = 04;
@@ -3671,7 +3719,8 @@ public class AJ27EcuTool {
 		saveData[7] = (byte) 0;
 		saveData[8] = (byte) 0;
 		
-		
+		monitorTextArea.append("preparing to create byte array\n");
+
 		for (int x=0;x<7;x++)
 		{			
 			//write header for block, unless first block which is skipped
@@ -3684,9 +3733,12 @@ public class AJ27EcuTool {
 				saveData[9+(x*1029)-1] = 0x00;
 			}
 
+			String s = String.format("Creating 1k byte block number %d",x);
+			monitorTextArea.append(s+"\n");
+
+			
 			for (int y=0;y<1024;y++)
 			{
-				//saveData[9+(x*1029)+y] = data[(x*1024)+y];
 				saveData[9+(x*1029)+y] = data.get((x*1024)+y).byteValue();
 			}
 		}
@@ -3695,13 +3747,15 @@ public class AJ27EcuTool {
 		
 		//file is an existing file chooser
 		//save the file
-		fc.setDialogTitle("Name for the ram data file (no extension) ?");
+		JFileChooser j = new JFileChooser();
 		
-		int userSelection = fc.showSaveDialog(saveRAMButton);
+		j.setDialogTitle("Name for the ram data file (no extension) ?");
+		
+		int userSelection = j.showSaveDialog(saveRAMButton);
 		
 		if (userSelection == JFileChooser.APPROVE_OPTION)
 		{
-			File saveFile = fc.getSelectedFile();
+			File saveFile = j.getSelectedFile();
 			String filePath = saveFile.getPath();				
 						
 			saveFile = new File(filePath + ".b68");
@@ -3723,6 +3777,31 @@ public class AJ27EcuTool {
 		
 		monitorTextArea.append("Ram data saved\n");
 		
+	}
+	
+	
+	byte[] getAddressInput()
+	{
+		int i = 0;
+		
+		String s = JOptionPane.showInputDialog(commandButton, "Enter ram address in hex (b0000-b1bfc)","Read 4 consecutive bytes of ram memory"
+				,JOptionPane.PLAIN_MESSAGE);
+		try
+		{
+			i = Integer.parseInt(s,16);
+		}
+		catch (NumberFormatException e)
+		{
+			JOptionPane.showMessageDialog(commandButton, "Invalid number - default to b0000");
+			i = 0xb0000;
+		}
+		
+		byte[] address = new byte[4];
+		address[3] = (byte) i;
+		address[2] = (byte) (i>>8);
+		address[1] = (byte) (i>>16);
+		address[0] = (byte) (0x23);
+		return address;
 	}
 	
 }
