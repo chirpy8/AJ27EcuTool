@@ -3611,6 +3611,7 @@ public class AJ27EcuTool {
 				
 				try
 				{
+					//download CPU1 ram
 					for (int x=0;x<1792;x++)
 					{
 						byte addr_low = (byte)((x << 2) & 0xff);
@@ -3637,16 +3638,56 @@ public class AJ27EcuTool {
 						if (addr_mid != last_mid)
 						{
 							s = String.format("%02x", last_mid);
-							publish("Downloaded 256 ram bytes at 0x0b" + s + "00");
-							progressCount += 3;
-							setProgress(progressCount);
+							publish("Downloaded 256 ram bytes at cpu1 0x0b" + s + "00");
+							progressCount += 17;
+							setProgress(progressCount/10);
 						}
 						
 						last_mid = addr_mid;
 					}
 			
 					String s = String.format("%2x", last_mid);
-					publish("Downloaded 256 ram bytes at 0x0b" + s + "00\n");				
+					publish("Downloaded 256 ram bytes at cpu1 0x0b" + s + "00\n");
+					
+					last_mid = 0;
+
+					//download cpu2 ram
+					for (int x=0;x<1792;x++)
+					{
+						byte addr_low = (byte)((x << 2) & 0xff);
+						byte addr_mid = (byte) (x >> 6);
+						CanbusMessage ramReq = new CanbusMessage(0x7e8, new byte[] {(byte) 0x23, (byte) 0x8b, addr_mid, addr_low}, "Get memory bytes");
+						
+						CanbusResponses cr = canbusRequestAndResponses(3, ramReq,
+								new byte[] {(byte) 0x07, (byte) 0x63, addr_mid, addr_low}, 0x7ec, null, 100L);
+						s = String.format("%02x %02x", addr_mid, addr_low);
+						//publish("Requesting address 0x0b "+s);
+						if (cr.getResult())
+						{
+							byte[] response = cr.getTargetResponse().getData();
+							for (int y=0;y<4;y++)
+							{
+								ramData.add(Byte.valueOf(response[y+4]));
+							}
+						}
+						else
+						{
+							throw new Exception("incorrect response to canbus request 0x23");
+						}
+						
+						if (addr_mid != last_mid)
+						{
+							s = String.format("%02x", last_mid);
+							publish("Downloaded 256 ram bytes at cpu2 0x0b" + s + "00");
+							progressCount += 18;
+							setProgress(progressCount/10);
+						}
+						
+						last_mid = addr_mid;
+					}
+			
+					s = String.format("%2x", last_mid);
+					publish("Downloaded 256 ram bytes at cpu2 0x0b" + s + "00\n");				
 			
 				}
 				catch (Exception e)
@@ -3706,43 +3747,81 @@ public class AJ27EcuTool {
 	{	
 		monitorTextArea.append("entering saveRamData\n");
 
-		byte[] saveData = new byte[7209];
+		byte[] saveData5 = new byte[7209];
+		byte[] saveData6 = new byte[7209];
 		
-		//write CPU signature
-		saveData[0] = 04;
-		saveData[1] = 00;
-		saveData[2] = 00;
-		saveData[3] = 7;		
-		saveData[4] = (byte) 0x54;
-		saveData[5] = (byte) 0xaa;
-		saveData[6] = (byte) 0x0b;
-		saveData[7] = (byte) 0;
-		saveData[8] = (byte) 0;
+		//write CPU1 signature
+		saveData5[0] = 04;
+		saveData5[1] = 00;
+		saveData5[2] = 00;
+		saveData5[3] = 7;		
+		saveData5[4] = (byte) 0x54;
+		saveData5[5] = (byte) 0xaa;
+		saveData5[6] = (byte) 0x0b;
+		saveData5[7] = (byte) 0;
+		saveData5[8] = (byte) 0;
 		
-		monitorTextArea.append("preparing to create byte array\n");
+		monitorTextArea.append("preparing to create cpu1 byte array\n");
 
+		//extract cpu1 data
 		for (int x=0;x<7;x++)
 		{			
 			//write header for block, unless first block which is skipped
 			if (x != 0)
 			{
-				saveData[9+(x*1029)-5] = 0x00;
-				saveData[9+(x*1029)-4] = 0x00;
-				saveData[9+(x*1029)-3] = (byte) 0x0b;
-				saveData[9+(x*1029)-2] = (byte) (x*4);
-				saveData[9+(x*1029)-1] = 0x00;
+				saveData5[9+(x*1029)-5] = 0x00;
+				saveData5[9+(x*1029)-4] = 0x00;
+				saveData5[9+(x*1029)-3] = (byte) 0x0b;
+				saveData5[9+(x*1029)-2] = (byte) (x*4);
+				saveData5[9+(x*1029)-1] = 0x00;
 			}
 
-			String s = String.format("Creating 1k byte block number %d",x);
+			String s = String.format("Creating cpu1 1k byte block number %d",x);
 			monitorTextArea.append(s+"\n");
 
 			
 			for (int y=0;y<1024;y++)
 			{
-				saveData[9+(x*1029)+y] = data.get((x*1024)+y).byteValue();
+				saveData5[9+(x*1029)+y] = data.get((x*1024)+y).byteValue();
 			}
 		}
-				
+
+		//write CPU2 signature
+		saveData6[0] = 04;
+		saveData6[1] = 00;
+		saveData6[2] = 00;
+		saveData6[3] = 7;		
+		saveData6[4] = (byte) 0x54;
+		saveData6[5] = (byte) 0xaa;
+		saveData6[6] = (byte) 0x0b;
+		saveData6[7] = (byte) 0;
+		saveData6[8] = (byte) 0;
+		
+		monitorTextArea.append("preparing to create cpu2 byte array\n");
+
+		//extract cpu2 data
+		for (int x=0;x<7;x++)
+		{			
+			//write header for block, unless first block which is skipped
+			if (x != 0)
+			{
+				saveData6[9+(x*1029)-5] = 0x00;
+				saveData6[9+(x*1029)-4] = 0x00;
+				saveData6[9+(x*1029)-3] = (byte) 0x0b;
+				saveData6[9+(x*1029)-2] = (byte) (x*4);
+				saveData6[9+(x*1029)-1] = 0x00;
+			}
+
+			String s = String.format("Creating cpu2 1k byte block number %d",x);
+			monitorTextArea.append(s+"\n");
+
+			
+			for (int y=0;y<1024;y++)
+			{
+				saveData6[9+(x*1029)+y] = data.get(7168+(x*1024)+y).byteValue();
+			}
+		}
+		
 		monitorTextArea.append("Preparing to save ram data\n");
 		
 		//file is an existing file chooser
@@ -3758,11 +3837,11 @@ public class AJ27EcuTool {
 			File saveFile = j.getSelectedFile();
 			String filePath = saveFile.getPath();				
 						
-			saveFile = new File(filePath + ".b68");
+			File saveFile5 = new File(filePath + "_501.b68");
 				
-			try (FileOutputStream out = new FileOutputStream(saveFile))
+			try (FileOutputStream out = new FileOutputStream(saveFile5))
 			{
-				out.write(saveData);
+				out.write(saveData5);
 			}
 			catch (FileNotFoundException e)
 			{
@@ -3773,6 +3852,20 @@ public class AJ27EcuTool {
 				e.printStackTrace();
 			}
 
+			File saveFile6 = new File(filePath + "_601.b68");
+			
+			try (FileOutputStream out = new FileOutputStream(saveFile6))
+			{
+				out.write(saveData6);
+			}
+			catch (FileNotFoundException e)
+			{
+				e.printStackTrace();
+			}
+			catch (IOException e)
+			{
+				e.printStackTrace();
+			}
 		}
 		
 		monitorTextArea.append("Ram data saved\n");
@@ -3780,19 +3873,24 @@ public class AJ27EcuTool {
 	}
 	
 	
-	byte[] getAddressInput()
+	private byte[] getAddressInput()
 	{
 		int i = 0;
 		
-		String s = JOptionPane.showInputDialog(commandButton, "Enter ram address in hex (b0000-b1bfc)","Read 4 consecutive bytes of ram memory"
+		String s = JOptionPane.showInputDialog(commandButton, "Enter ram address in hex (b0000-b1bfc)(for IC601 add 0x800000)","Read 4 consecutive bytes of ram memory"
 				,JOptionPane.PLAIN_MESSAGE);
 		try
 		{
 			i = Integer.parseInt(s,16);
+			//valid addresses are 0b0000-0b1bfc, 0b8000-0bfffc
+			//for IC601, set bit7 of first byte (mask off to test for valid addresses)
+			int j = i & 0xfffff;
+			if ((j < 0xb0000) || ((j > 0xb1bfc) && (j < 0xb8000)) || (j > 0xbfffc))
+				throw new NumberFormatException();	
 		}
 		catch (NumberFormatException e)
 		{
-			JOptionPane.showMessageDialog(commandButton, "Invalid number - default to b0000");
+			JOptionPane.showMessageDialog(commandButton, "Invalid number - default to 0b0000");
 			i = 0xb0000;
 		}
 		
